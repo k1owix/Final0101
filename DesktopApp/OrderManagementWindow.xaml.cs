@@ -1,46 +1,121 @@
-﻿using DataAccess.Entities;
-using System.Net.Http;
-using System.Net.Http.Json;
+using DesktopApp.Helpers;
+using DesktopApp.Models;
+using DesktopApp.Services;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 
-namespace DesktopApp
+namespace DesktopApp;
+
+public partial class OrderManagementWindow : Window
 {
-    public partial class OrderManagementWindow : Window
+    private readonly ApiService _apiService = new();
+    private IReadOnlyList<OrderSummary> _orders = [];
+
+    public OrderManagementWindow()
     {
-        private readonly HttpClient _http = new();
-        private List<Order> _orders = [];
+        InitializeComponent();
+        Loaded += OrderManagementWindow_Loaded;
+    }
 
-        public OrderManagementWindow()
+    private async void OrderManagementWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (!AppState.CanManageOrders)
         {
-            InitializeComponent();
-            LoadOrders();
+            MessageBox.Show(
+                "Окно управления заказами доступно только менеджеру или администратору.",
+                "Доступ запрещен",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            Close();
+            return;
         }
 
-        private async void LoadOrders()
+        await LoadOrdersAsync();
+    }
+
+    private async Task LoadOrdersAsync()
+    {
+        try
         {
-            var orders = await _http.GetFromJsonAsync<List<Order>>("https://localhost:7046/api/orders");
-            _orders = orders ?? [];
-            OrdersListView.ItemsSource = _orders;
+            _orders = await ApiService.GetOrdersAsync();
+            OrdersDataGrid.ItemsSource = _orders;
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Не удалось загрузить заказы.\n{ex.Message}", "Ошибка загрузки", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void OrdersDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (OrdersDataGrid.SelectedItem is not OrderSummary order)
+        {
+            return;
         }
 
-        private void OrdersListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        DeliveryDatePicker.SelectedDate = order.DeliveryDate;
+        SelectStatus(order.StatusName);
+        OrderDetailsTextBlock.Text = BuildOrderDetails(order);
+    }
+
+    private async void UpdateButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (OrdersDataGrid.SelectedItem is not OrderSummary order)
         {
-            if (OrdersListView.SelectedItem is Order order)
+            MessageBox.Show("Сначала выберите заказ из списка.", "Нет выбранного заказа", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (StatusComboBox.SelectedItem is not ComboBoxItem selectedStatus)
+        {
+            MessageBox.Show("Укажите новый статус заказа.", "Нет статуса", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        try
+        {
+            await _apiService.UpdateOrderAsync(
+                order.OrderId,
+                new OrderUpdateRequest
+                {
+                    DeliveryDate = DeliveryDatePicker.SelectedDate,
+                    StatusName = selectedStatus.Content?.ToString() ?? string.Empty
+                });
+
+            await LoadOrdersAsync();
+            MessageBox.Show("Изменения по заказу сохранены.", "Готово", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Не удалось обновить заказ.\n{ex.Message}", "Ошибка обновления", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void SelectStatus(string statusName)
+    {
+        foreach (ComboBoxItem item in StatusComboBox.Items)
+        {
+            if (string.Equals(item.Content?.ToString(), statusName, StringComparison.OrdinalIgnoreCase))
             {
-                StatusComboBox.Text = order.Status;
+                StatusComboBox.SelectedItem = item;
+                return;
             }
         }
+    }
 
-        private async void UpdateButton_Click(object sender, RoutedEventArgs e)
+    private static string BuildOrderDetails(OrderSummary order)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine($"Клиент: {order.ClientName ?? "Гость"}");
+        builder.AppendLine($"Код получения: {order.ReceiptCode}");
+        builder.AppendLine("Состав заказа:");
+
+        foreach (var item in order.Items)
         {
-            if (OrdersListView.SelectedItem is Order order)
-            {
-                order.Status = StatusComboBox.Text;
-                await _http.PutAsJsonAsync($"https://localhost:7046/api/orders/{order.OrderId}", order);
-                MessageBox.Show("Статус обновлён!");
-                LoadOrders();
-            }
+            builder.AppendLine($"- {item.ProductName} ({item.Quantity} шт.)");
         }
+
+        return builder.ToString().TrimEnd();
     }
 }

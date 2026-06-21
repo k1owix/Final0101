@@ -1,53 +1,149 @@
-﻿<Window x:Class="DesktopApp.MainWindow"
+<Window x:Class="DesktopApp.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:DesktopApp"
-        mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="950">
-    <Grid>
+        Title="Читайте город - каталог"
+        Width="1180"
+        Height="760"
+        MinWidth="980"
+        MinHeight="620"
+        Icon="/Resources/icon.ico"
+        WindowStartupLocation="CenterScreen">
+    <Grid Margin="16">
         <Grid.RowDefinitions>
-            <RowDefinition Height="50"/>
-            <RowDefinition Height="70"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- ===== ВЕРХНЯЯ ПАНЕЛЬ ===== -->
-        <StackPanel Grid.Row="0" Background="Orange" Orientation="Horizontal" Margin="10">
-            <TextBlock Text="Магазин" FontSize="16" FontWeight="Bold" Foreground="White" VerticalAlignment="Center" Width="200"/>
-            <TextBlock x:Name="UserLabel" Text="Гость" Foreground="White" VerticalAlignment="Center" Margin="500,0,10,0"/>
-            <Button x:Name="LoginButton" Content="Войти" Background="#B8860B" Foreground="White" 
-                    Padding="10,3" Click="LoginButton_Click"/>
-            <Button x:Name="LogoutButton" Content="Выйти" Background="#B8860B" Foreground="White" 
-                    Padding="10,3" Click="LogoutButton_Click" Visibility="Collapsed"/>
-            <Button x:Name="CartButton" Content="Корзина" Background="#B8860B" Foreground="White" 
-                    Padding="10,3" Click="CartButton_Click" Margin="10,0,0,0" Visibility="Collapsed"/>
-            <Button x:Name="ManageOrdersButton" Content="Управление заказами" Background="#B8860B" 
-                    Foreground="White" Padding="10,3" Click="ManageOrdersButton_Click" Visibility="Collapsed" Margin="10,0,0,0"/>
-        </StackPanel>
+        <Border Grid.Row="0"
+                Padding="16"
+                CornerRadius="8"
+                Background="{StaticResource SecondaryBackgroundBrush}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
 
-        <!-- ===== ПАНЕЛЬ ФИЛЬТРОВ ===== -->
-        <StackPanel Grid.Row="1" Margin="10">
-            <WrapPanel>
-                <TextBox x:Name="SearchTextBox" Width="150" TextChanged="OnFilterChanged" Margin="0,0,10,0"/>
-                <ComboBox x:Name="ManufacturerComboBox" Width="150" SelectionChanged="OnFilterChanged" Margin="0,0,10,0"/>
-                <TextBox x:Name="MinPriceTextBox" Width="60" Text="0" TextChanged="OnFilterChanged" Margin="0,0,5,0"/>
-                <TextBlock Text="-" VerticalAlignment="Center" Margin="0,0,5,0"/>
-                <TextBox x:Name="MaxPriceTextBox" Width="60" Text="100000" TextChanged="OnFilterChanged" Margin="0,0,10,0"/>
-                <ComboBox x:Name="SortComboBox" Width="100" SelectionChanged="OnFilterChanged">
-                    <ComboBoxItem Content="Имя" IsSelected="True"/>
-                    <ComboBoxItem Content="Цена"/>
-                </ComboBox>
-                <CheckBox x:Name="DescCheckBox" Content="Убывание" Checked="OnFilterChanged" 
-                          Unchecked="OnFilterChanged" Margin="10,0,10,0"/>
-                <TextBlock x:Name="CountTextBlock" Text="Найдено: 0" FontWeight="Bold" VerticalAlignment="Center"/>
+                <Image Grid.Column="0"
+                       Source="/Resources/logo.png"
+                       Height="56"
+                       Width="220"
+                       Stretch="Uniform"
+                       Margin="0,0,16,0" />
+
+                <StackPanel Grid.Column="1"
+                            VerticalAlignment="Center">
+                    <TextBlock Text="Книжный терминал"
+                               FontSize="24"
+                               FontWeight="Bold"
+                               Foreground="White" />
+                    <TextBlock Text="Каталог и оформление заказов"
+                               FontSize="14"
+                               Foreground="White"
+                               Opacity="0.95" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="2"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <TextBlock x:Name="UserLabel"
+                               Margin="0,0,12,0"
+                               VerticalAlignment="Center"
+                               FontWeight="SemiBold"
+                               Foreground="White"
+                               Text="Гость" />
+                    <Button x:Name="LoginButton"
+                            Style="{StaticResource AccentButtonStyle}"
+                            Click="LoginButton_Click"
+                            Content="Войти" />
+                    <Button x:Name="LogoutButton"
+                            Margin="8,0,0,0"
+                            Click="LogoutButton_Click"
+                            Content="Выйти"
+                            Visibility="Collapsed" />
+                    <Button x:Name="CartButton"
+                            Margin="8,0,0,0"
+                            Click="CartButton_Click"
+                            Content="Корзина"
+                            Visibility="Collapsed" />
+                    <Button x:Name="ManageOrdersButton"
+                            Margin="8,0,0,0"
+                            Click="ManageOrdersButton_Click"
+                            Content="Заказы"
+                            Visibility="Collapsed" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="1"
+                Margin="0,16,0,0"
+                Padding="16"
+                CornerRadius="8"
+                Background="White"
+                BorderBrush="#E5E0D6"
+                BorderThickness="1">
+            <WrapPanel VerticalAlignment="Center">
+                <StackPanel Margin="0,0,12,0">
+                    <TextBlock Text="Поиск" Style="{StaticResource FilterLabelStyle}" />
+                    <TextBox x:Name="SearchTextBox"
+                             Width="220"
+                             TextChanged="OnFilterChanged" />
+                </StackPanel>
+
+                <StackPanel Margin="0,0,12,0">
+                    <TextBlock Text="Издательство" Style="{StaticResource FilterLabelStyle}" />
+                    <ComboBox x:Name="ManufacturerComboBox"
+                              Width="220"
+                              SelectionChanged="OnFilterChanged" />
+                </StackPanel>
+
+                <StackPanel Margin="0,0,12,0">
+                    <TextBlock Text="Цена от" Style="{StaticResource FilterLabelStyle}" />
+                    <TextBox x:Name="MinPriceTextBox"
+                             Width="120"
+                             TextChanged="OnFilterChanged" />
+                </StackPanel>
+
+                <StackPanel Margin="0,0,12,0">
+                    <TextBlock Text="Цена до" Style="{StaticResource FilterLabelStyle}" />
+                    <TextBox x:Name="MaxPriceTextBox"
+                             Width="120"
+                             TextChanged="OnFilterChanged" />
+                </StackPanel>
+
+                <StackPanel Margin="0,0,12,0">
+                    <TextBlock Text="Сортировка" Style="{StaticResource FilterLabelStyle}" />
+                    <ComboBox x:Name="SortComboBox"
+                              Width="160"
+                              SelectionChanged="OnFilterChanged">
+                        <ComboBoxItem IsSelected="True" Content="Наименование" />
+                        <ComboBoxItem Content="Цена" />
+                    </ComboBox>
+                </StackPanel>
+
+                <CheckBox x:Name="DescCheckBox"
+                          Margin="0,24,0,0"
+                          VerticalAlignment="Center"
+                          Checked="OnFilterChanged"
+                          Unchecked="OnFilterChanged"
+                          Content="По убыванию" />
             </WrapPanel>
-        </StackPanel>
+        </Border>
 
-        <!-- ===== ТОВАРЫ ===== -->
-        <ScrollViewer Grid.Row="2">
-            <WrapPanel x:Name="ProductsPanel" Margin="10"/>
+        <TextBlock x:Name="CountTextBlock"
+                   Grid.Row="2"
+                   Margin="4,12,0,0"
+                   FontSize="14"
+                   FontWeight="SemiBold"
+                   Text="Показано: 0 из 0" />
+
+        <ScrollViewer Grid.Row="3"
+                      Margin="0,12,0,0"
+                      VerticalScrollBarVisibility="Auto">
+            <WrapPanel x:Name="ProductsPanel" />
         </ScrollViewer>
     </Grid>
 </Window>

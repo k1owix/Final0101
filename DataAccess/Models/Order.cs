@@ -1,35 +1,35 @@
-﻿using DataAccess.Models;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
-namespace DataAccess.Entities
+namespace DataAccess.Models;
+
+[Table("Orders")]
+public sealed class Order
 {
-    [Table("Orders")]
-    public class Order
-    {
-        [Key]
-        public int OrderId { get; set; }
+    [Key]
+    public int OrderId { get; set; }
 
-        public DateTime OrderDate { get; set; }
+    [NotMapped]
+    public int OrderNumber => OrderId;
 
-        public DateTime? DeliveryDate { get; set; }
+    public DateTime OrderDate { get; set; }
 
-        public int? CustomerId { get; set; }
+    public DateTime? DeliveryDate { get; set; }
 
-        [StringLength(100)]
-        public string? CustomerName { get; set; }
+    [Column("CustomerId")]
+    public int? UserId { get; set; }
 
-        [Required]
-        [StringLength(3)]
-        public string? PickupCode { get; set; } = string.Empty;
+    [StringLength(200)]
+    public string? CustomerName { get; set; }
 
-        [Required]
-        [StringLength(20)]
-        public string? Status { get; set; } = "Новый";
+    [Required]
+    [Column("PickupCode")]
+    [StringLength(10)]
+    public string ReceiptCode { get; set; } = string.Empty;
 
-        [ForeignKey("CustomerId")]
-        public virtual User? Customer { get; set; }
+    [Column("Status")]
+    [StringLength(50)]
+    public string StatusName { get; set; } = string.Empty;
 
-        public virtual ICollection<OrderProduct> OrderProducts { get; set; } = new List<OrderProduct>();
-    }
+    public ICollection<OrderItem> OrderItems { get; set; } = [];
 }

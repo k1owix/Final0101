@@ -1,48 +1,139 @@
-﻿using DesktopApp.Models;
+using DesktopApp.Models;
 using System.Net.Http;
 using System.Net.Http.Json;
 
-namespace DesktopApp.Services
-{
-    public interface IApiService
-    {
-        Task<List<Product>> GetProductsAsync(string? search = null, string? manufacturer = null,
-            decimal? minPrice = null, decimal? maxPrice = null,
-            string? sortBy = null, bool desc = false);
+namespace DesktopApp.Services;
 
-        Task<List<string>> GetManufacturersAsync();
+public sealed class ApiService
+{
+    private static readonly HttpClient[] Clients =
+    [
+        CreateClient("https://localhost:7046/"),
+        CreateClient("http://localhost:5022/")
+    ];
+
+    public static async Task<IReadOnlyList<Product>> GetProductsAsync() => await SendAndReadAsync<List<Product>>(
+                   (client, token) => client.GetAsync("api/products", token),
+                   "Could not load products.")
+               ?? [];
+
+    public static async Task<AuthenticatedUser> LoginAsync(string login, string password)
+    {
+        using var response = await SendAsync(
+            (client, token) => client.PostAsJsonAsync("api/users/login", new { Login = login, Password = password }, token),
+            "Login failed.");
+
+        return await ReadJsonAsync<AuthenticatedUser>(response, "Server returned an empty login response.");
     }
 
-    public class ApiService : IApiService
+    public static async Task<CreatedOrder> CreateOrderAsync(OrderCreateRequest request)
     {
-        private readonly HttpClient _httpClient;
+        using var response = await SendAsync(
+            (client, token) => client.PostAsJsonAsync("api/orders", request, token),
+            "Order creation failed.");
 
-        public ApiService(string baseUrl = "https://localhost:5001")
+        return await ReadJsonAsync<CreatedOrder>(response, "Server returned an empty order response.");
+    }
+
+    public static async Task<IReadOnlyList<OrderSummary>> GetOrdersAsync() => await SendAndReadAsync<List<OrderSummary>>(
+                   (client, token) => client.GetAsync("api/orders", token),
+                   "Could not load orders.")
+               ?? [];
+
+    public async Task UpdateOrderAsync(int orderId, OrderUpdateRequest request)
+    {
+        using var response = await SendAsync(
+            (client, token) => client.PutAsJsonAsync($"api/orders/{orderId}", request, token),
+            "Could not update order.");
+
+        await EnsureSuccessAsync(response, "Could not update order.");
+    }
+
+    private static async Task<T?> SendAndReadAsync<T>(
+        Func<HttpClient, CancellationToken, Task<HttpResponseMessage>> send,
+        string fallbackMessage)
+    {
+        using var response = await SendAsync(send, fallbackMessage);
+        return await ReadJsonAsync<T>(response, fallbackMessage);
+    }
+
+    private static async Task<HttpResponseMessage> SendAsync(
+        Func<HttpClient, CancellationToken, Task<HttpResponseMessage>> send,
+        string fallbackMessage)
+    {
+        Exception? lastException = null;
+
+        foreach (var client in Clients)
         {
-            _httpClient = new HttpClient { BaseAddress = new System.Uri(baseUrl) };
+            try
+            {
+                var response = await send(client, CancellationToken.None);
+                await EnsureSuccessAsync(response, fallbackMessage);
+                return response;
+            }
+            catch (HttpRequestException ex)
+            {
+                lastException = ex;
+            }
+            catch (TaskCanceledException ex)
+            {
+                lastException = ex;
+            }
         }
 
-        public async Task<List<Product>> GetProductsAsync(string? search = null, string? manufacturer = null,
-            decimal? minPrice = null, decimal? maxPrice = null,
-            string? sortBy = null, bool desc = false)
+        throw new InvalidOperationException("Could not connect to the Web API over HTTPS or HTTP.", lastException);
+    }
+
+    private static async Task<T> ReadJsonAsync<T>(HttpResponseMessage response, string fallbackMessage)
+    {
+        return await response.Content.ReadFromJsonAsync<T>()
+            ?? throw new InvalidOperationException(fallbackMessage);
+    }
+
+    private static async Task EnsureSuccessAsync(HttpResponseMessage response, string fallbackMessage)
+    {
+        if (response.IsSuccessStatusCode)
         {
-            var query = new List<string>();
-            if (!string.IsNullOrEmpty(search)) query.Add($"search={Uri.EscapeDataString(search)}");
-            if (!string.IsNullOrEmpty(manufacturer)) query.Add($"manufacturer={Uri.EscapeDataString(manufacturer)}");
-            if (minPrice.HasValue) query.Add($"minPrice={minPrice.Value}");
-            if (maxPrice.HasValue) query.Add($"maxPrice={maxPrice.Value}");
-            if (!string.IsNullOrEmpty(sortBy)) query.Add($"sortBy={sortBy}");
-            if (desc) query.Add("desc=true");
-
-            var url = "api/products";
-            if (query.Count > 0) url += "?" + string.Join("&", query);
-
-            return await _httpClient.GetFromJsonAsync<List<Product>>(url) ?? new();
+            return;
         }
 
-        public async Task<List<string>> GetManufacturersAsync()
+        throw new InvalidOperationException(await ReadErrorMessageAsync(response, fallbackMessage));
+    }
+
+    private static async Task<string> ReadErrorMessageAsync(HttpResponseMessage response, string fallbackMessage)
+    {
+        try
         {
-            return await _httpClient.GetFromJsonAsync<List<string>>("api/products/manufacturers") ?? new();
+            var problem = await response.Content.ReadFromJsonAsync<ApiProblem>();
+            if (!string.IsNullOrWhiteSpace(problem?.Detail))
+            {
+                return problem.Detail;
+            }
+
+            if (!string.IsNullOrWhiteSpace(problem?.Message))
+            {
+                return problem.Message;
+            }
         }
+        catch
+        {
+        }
+
+        var serverMessage = await response.Content.ReadAsStringAsync();
+        return string.IsNullOrWhiteSpace(serverMessage) ? fallbackMessage : serverMessage;
+    }
+
+    private static HttpClient CreateClient(string baseAddress)
+    {
+        return new HttpClient
+        {
+            BaseAddress = new Uri(baseAddress)
+        };
+    }
+
+    private sealed class ApiProblem
+    {
+        public string? Detail { get; init; }
+        public string? Message { get; init; }
     }
 }

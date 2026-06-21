@@ -1,83 +1,39 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using DataAccess;
-using DataAccess.Entities;
+using DataAccess.Services;
+using Microsoft.AspNetCore.Mvc;
+using WebApi.Contracts;
 
-namespace WebAPI.Controllers
+namespace WebApi.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public sealed class ProductsController : ControllerBase
 {
-    [ApiController]
-    [Route("api/[controller]")]
-    public class ProductsController : ControllerBase
+    private readonly IProductService _productService;
+
+    public ProductsController(IProductService productService) => _productService = productService;
+
+    [HttpGet]
+    [ProducesResponseType(typeof(IReadOnlyList<ProductResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<ProductResponse>>> GetProducts(
+        [FromQuery] string? search,
+        [FromQuery] string? manufacturer,
+        [FromQuery] decimal? minPrice,
+        [FromQuery] decimal? maxPrice,
+        [FromQuery] string? sortBy,
+        [FromQuery] bool desc = false,
+        CancellationToken cancellationToken = default)
     {
-        private readonly AppDatabaseContext _context;
+        var products = await _productService.GetProductsAsync(
+            new ProductQuery(search, manufacturer, minPrice, maxPrice, sortBy, desc),
+            cancellationToken);
 
-        public ProductsController(AppDatabaseContext context)
-        {
-            _context = context;
-        }
+        return Ok(products.Select(ProductMappings.ToResponse).ToList());
+    }
 
-        /// <summary>
-        /// Получить список товаров с фильтрацией и сортировкой
-        /// </summary>
-        [HttpGet]
-        public async Task<IActionResult> GetProducts(
-            [FromQuery] string? search,
-            [FromQuery] string? manufacturer,
-            [FromQuery] decimal? minPrice,
-            [FromQuery] decimal? maxPrice,
-            [FromQuery] string? sortBy,
-            [FromQuery] bool desc = false)
-        {
-            try
-            {
-                var query = _context.Products.AsQueryable();
-
-                if (!string.IsNullOrWhiteSpace(search))
-                    query = query.Where(p => p.Name.Contains(search));
-
-                if (!string.IsNullOrWhiteSpace(manufacturer))
-                    query = query.Where(p => p.Manufacturer == manufacturer);
-
-                if (minPrice.HasValue)
-                    query = query.Where(p => p.Price >= minPrice.Value);
-                if (maxPrice.HasValue)
-                    query = query.Where(p => p.Price <= maxPrice.Value);
-
-                query = sortBy?.ToLower() switch
-                {
-                    "name" => desc ? query.OrderByDescending(p => p.Name) : query.OrderBy(p => p.Name),
-                    "price" => desc ? query.OrderByDescending(p => p.Price) : query.OrderBy(p => p.Price),
-                    _ => query.OrderBy(p => p.Name)
-                };
-
-                var products = await query.ToListAsync();
-                return Ok(products);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"Ошибка: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Получить список всех производителей
-        /// </summary>
-        [HttpGet("manufacturers")]
-        public async Task<IActionResult> GetManufacturers()
-        {
-            try
-            {
-                var manufacturers = await _context.Products
-                    .Select(p => p.Manufacturer)
-                    .Distinct()
-                    .OrderBy(m => m)
-                    .ToListAsync();
-                return Ok(manufacturers);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"Ошибка: {ex.Message}");
-            }
-        }
+    [HttpGet("manufacturers")]
+    [ProducesResponseType(typeof(IReadOnlyList<string>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<string>>> GetManufacturers(CancellationToken cancellationToken = default)
+    {
+        return Ok(await _productService.GetManufacturersAsync(cancellationToken));
     }
 }

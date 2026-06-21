@@ -1,87 +1,123 @@
-﻿using DataAccess.Entities;
-using DataAccess.Models;
 using DesktopApp.Helpers;
 using DesktopApp.Models;
-using System.Net.Http;
-using System.Net.Http.Json;
+using DesktopApp.Services;
+using Microsoft.Win32;
+using System.IO;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 
-namespace DesktopApp
+namespace DesktopApp;
+
+public partial class OrderWindow : Window
 {
-    public partial class OrderWindow : Window
+    private readonly ApiService _apiService = new();
+
+    public OrderWindow()
     {
-        private readonly HttpClient _http = new();
+        InitializeComponent();
+        LoadCart();
+    }
 
-        public OrderWindow()
+    private void LoadCart()
+    {
+        CustomerTextBlock.Text = $"Покупатель: {AppState.CurrentUser?.FullName ?? "гость"}";
+        ItemsListView.ItemsSource = AppState.Cart.ToList();
+        TotalTextBlock.Text = AppState.Cart.Sum(item => item.Total).ToString("C");
+    }
+
+    private async void OrderButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (AppState.Cart.Count == 0)
         {
-            InitializeComponent();
-            LoadCart();
+            MessageBox.Show("Добавьте в корзину хотя бы один товар.", "Пустая корзина", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
         }
 
-        private void LoadCart()
+        try
         {
-            ItemsListView.ItemsSource = AppState.Cart.ToList();
-            var total = AppState.Cart.Sum(c => c.Total);
-            TotalTextBlock.Text = total.ToString("C");
-        }
-
-        private async void OrderButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (AppState.Cart.Count == 0)
-            {
-                MessageBox.Show("Корзина пуста!");
-                return;
-            }
-
-            try
-            {
-                var order = new Order
+            var createdOrder = await ApiService.CreateOrderAsync(
+                new OrderCreateRequest
                 {
-                    OrderDate = DateTime.Now,
-                    CustomerName = AppState.UserName,
-                    Status = "Новый",
-                    OrderProducts = [.. AppState.Cart.Select(c => new OrderProduct
-                    {
-                        ProductId = c.Product.ArticleNumber,
-                        Quantity = c.Quantity
-                    })]
-                };
+                    UserId = AppState.CurrentUser?.UserId,
+                    Items = [.. AppState.Cart
+                        .Select(item => new OrderCreateItemRequest
+                        {
+                            ProductId = item.Product.ProductId,
+                            Quantity = item.Quantity
+                        })]
+                });
 
-                var response = await _http.PostAsJsonAsync("https://localhost:7046/api/orders", order);
+            var receiptText = BuildReceipt(createdOrder);
+            SaveReceipt(createdOrder.OrderNumber, receiptText);
+            AppState.Cart.Clear();
 
-                if (!response.IsSuccessStatusCode)
-                {
-                    var error = await response.Content.ReadAsStringAsync();
-                    MessageBox.Show($"Ошибка: {error}");
-                    return;
-                }
+            MessageBox.Show(
+                $"Заказ №{createdOrder.OrderNumber} оформлен.\nКод получения: {createdOrder.ReceiptCode}",
+                "Заказ оформлен",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
 
-                var created = await response.Content.ReadFromJsonAsync<Order>();
-                MessageBox.Show($"Заказ №{created.OrderId} оформлен!\nКод получения: {created.PickupCode}",
-                    "Успешно", MessageBoxButton.OK, MessageBoxImage.Information);
-
-                AppState.Cart.Clear();
-                DialogResult = true;
-                Close();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Ошибка: {ex.Message}");
-            }
-
-        }
-
-        private void CloseButton_Click(object sender, RoutedEventArgs e)
-        {
-            DialogResult = false;
+            DialogResult = true;
             Close();
         }
-
-        private void RemoveButton_Click(object sender, RoutedEventArgs e)
+        catch (Exception ex)
         {
-            CartItem? item = (sender as Button)?.Tag as CartItem;
-            if (item != null && AppState.Cart.Remove(item)) LoadCart();
+            MessageBox.Show($"Не удалось оформить заказ.\n{ex.Message}", "Ошибка оформления", MessageBoxButton.OK, MessageBoxImage.Error);
         }
+    }
+
+    private static string BuildReceipt(CreatedOrder createdOrder)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("Читайте город");
+        builder.AppendLine($"Номер заказа: {createdOrder.OrderNumber}");
+        builder.AppendLine($"Дата заказа: {createdOrder.OrderDate:dd.MM.yyyy HH:mm}");
+        builder.AppendLine($"Покупатель: {AppState.CurrentUser?.FullName ?? "Гость"}");
+        builder.AppendLine($"Код получения: {createdOrder.ReceiptCode}");
+        builder.AppendLine(new string('-', 42));
+
+        foreach (var item in AppState.Cart)
+        {
+            builder.AppendLine(item.Product.Name);
+            builder.AppendLine($"  {item.Quantity} x {item.Product.DiscountedPrice:C} = {item.Total:C}");
+        }
+
+        builder.AppendLine(new string('-', 42));
+        builder.AppendLine($"Итого: {AppState.Cart.Sum(item => item.Total):C}");
+        return builder.ToString();
+    }
+
+    private void SaveReceipt(int orderNumber, string receiptText)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Title = "Сохранить талон",
+            FileName = $"Заказ_{orderNumber}.txt",
+            Filter = "Текстовые файлы (*.txt)|*.txt",
+            DefaultExt = ".txt"
+        };
+
+        if (dialog.ShowDialog(this) == true)
+        {
+            File.WriteAllText(dialog.FileName, receiptText, Encoding.UTF8);
+        }
+    }
+
+    private void RemoveButton_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as Button)?.Tag is not CartItem cartItem)
+        {
+            return;
+        }
+
+        AppState.Cart.Remove(cartItem);
+        LoadCart();
+    }
+
+    private void CloseButton_Click(object sender, RoutedEventArgs e)
+    {
+        DialogResult = false;
+        Close();
     }
 }

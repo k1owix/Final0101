@@ -1,251 +1,375 @@
-﻿using DesktopApp.Helpers;
+using DesktopApp.Helpers;
 using DesktopApp.Models;
 using DesktopApp.Services;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
-namespace DesktopApp
+namespace DesktopApp;
+
+public partial class MainWindow : Window
 {
-    public partial class MainWindow : Window
+    private const string AllManufacturers = "Все издательства";
+
+    private readonly ApiService _apiService = new();
+    private IReadOnlyList<Product> _allProducts = [];
+    private readonly bool _uiReady;
+
+    public MainWindow()
     {
-        private readonly IApiService _api = new ApiService("https://localhost:7046");
-        private List<Product> _products = new();
+        InitializeComponent();
+        _uiReady = true;
+        Loaded += MainWindow_Loaded;
+    }
 
-        public MainWindow()
+    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        await LoadProductsAsync();
+        PopulateManufacturers();
+        UpdateUserState();
+        ApplyFilters();
+        UpdateCartButton();
+    }
+
+    private async Task LoadProductsAsync()
+    {
+        try
         {
-            InitializeComponent();
-            LoadManufacturers();
-            LoadProducts();
-            UpdateUI();
-            UpdateCart();
+            _allProducts = await ApiService.GetProductsAsync();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                $"Не удалось загрузить товары.\n{ex.Message}",
+                "Ошибка загрузки",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
+    private void PopulateManufacturers()
+    {
+        if (ManufacturerComboBox is null || MinPriceTextBox is null || MaxPriceTextBox is null)
+        {
+            return;
         }
 
-        private async void LoadProducts()
+        ManufacturerComboBox.Items.Clear();
+        ManufacturerComboBox.Items.Add(AllManufacturers);
+
+        foreach (var manufacturer in _allProducts
+                     .Select(product => product.ManufacturerName)
+                     .Distinct()
+                     .OrderBy(name => name))
         {
-            try
-            {
-                var search = SearchTextBox?.Text ?? "";
-
-                var manufacturer = ManufacturerComboBox?.SelectedItem?.ToString();
-                if (manufacturer == "Все производители") manufacturer = null;
-
-                var minPrice = ParsePrice(MinPriceTextBox?.Text ?? "0");
-                var maxPrice = ParsePrice(MaxPriceTextBox?.Text ?? "100000");
-
-                var sortBy = SortComboBox?.SelectedItem?.ToString();
-                if (sortBy == "Имя") sortBy = "name";
-                else if (sortBy == "Цена") sortBy = "price";
-
-                _products = await _api.GetProductsAsync(
-                    search: search,
-                    manufacturer: manufacturer,
-                    minPrice: minPrice,
-                    maxPrice: maxPrice,
-                    sortBy: sortBy,
-                    desc: DescCheckBox?.IsChecked ?? false
-                );
-
-                if (ProductsPanel != null)
-                {
-                    ProductsPanel.Children.Clear();
-
-                    if (_products.Count == 0)
-                    {
-                        ProductsPanel.Children.Add(new TextBlock
-                        { Text = "Товары не найдены", FontSize = 16, Margin = new Thickness(20) });
-                        return;
-                    }
-
-                    foreach (var p in _products)
-                        ProductsPanel.Children.Add(CreateCard(p));
-                }
-
-                if (CountTextBlock != null)
-                    CountTextBlock.Text = $"Найдено: {_products.Count}";
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Ошибка: {ex.Message}");
-            }
+            ManufacturerComboBox.Items.Add(manufacturer);
         }
 
-        private decimal ParsePrice(string text) => decimal.TryParse(text, out var v) ? v : 0;
+        ManufacturerComboBox.SelectedIndex = 0;
+        MinPriceTextBox.Text = "0";
+        MaxPriceTextBox.Text = _allProducts.Count == 0
+            ? "0"
+            : decimal.Ceiling(_allProducts.Max(product => product.Price)).ToString("0");
+    }
 
-        private Border CreateCard(Product p)
+    private void UpdateUserState()
+    {
+        if (UserLabel is null || LoginButton is null || LogoutButton is null || ManageOrdersButton is null)
         {
-            var card = new Border
-            {
-                Width = 200,
-                Height = 240,
-                Margin = new Thickness(10),
-                BorderBrush = new SolidColorBrush(Colors.Gray),
-                BorderThickness = new Thickness(1),
-                Padding = new Thickness(10),
-                Background = new SolidColorBrush(Colors.White)
-            };
+            return;
+        }
 
-            var stack = new StackPanel();
+        UserLabel.Text = AppState.CurrentUser?.FullName ?? "Гость";
+        LoginButton.Visibility = AppState.IsAuthenticated ? Visibility.Collapsed : Visibility.Visible;
+        LogoutButton.Visibility = AppState.IsAuthenticated ? Visibility.Visible : Visibility.Collapsed;
+        ManageOrdersButton.Visibility = AppState.CanManageOrders ? Visibility.Visible : Visibility.Collapsed;
+    }
 
-            stack.Children.Add(new TextBlock
-            {
-                Text = p.Name,
-                FontWeight = FontWeights.Bold,
-                TextWrapping = TextWrapping.Wrap,
-                Height = 65
-            });
+    private void UpdateCartButton()
+    {
+        if (CartButton is null)
+        {
+            return;
+        }
 
-            stack.Children.Add(new TextBlock
-            {
-                Text = $"Производитель: {p.Manufacturer}",
-                FontSize = 11,
-                Foreground = new SolidColorBrush(Colors.Gray)
-            });
+        var totalQuantity = AppState.Cart.Sum(item => item.Quantity);
+        CartButton.Visibility = totalQuantity > 0 ? Visibility.Visible : Visibility.Collapsed;
+        CartButton.Content = totalQuantity > 0 ? $"Корзина ({totalQuantity})" : "Корзина";
+    }
 
-            var price = new TextBlock
+    private void ApplyFilters()
+    {
+        if (!_uiReady ||
+            SearchTextBox is null ||
+            ManufacturerComboBox is null ||
+            MinPriceTextBox is null ||
+            MaxPriceTextBox is null ||
+            SortComboBox is null ||
+            DescCheckBox is null ||
+            CountTextBlock is null ||
+            ProductsPanel is null)
+        {
+            return;
+        }
+
+        IEnumerable<Product> query = _allProducts;
+
+        var search = SearchTextBox.Text.Trim();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            query = query.Where(product => product.Name.Contains(search, StringComparison.CurrentCultureIgnoreCase));
+        }
+
+        if (ManufacturerComboBox.SelectedItem is string manufacturer &&
+            !string.Equals(manufacturer, AllManufacturers, StringComparison.Ordinal))
+        {
+            query = query.Where(product =>
+                string.Equals(product.ManufacturerName, manufacturer, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (decimal.TryParse(MinPriceTextBox.Text, out var minPrice))
+        {
+            query = query.Where(product => product.DiscountedPrice >= minPrice);
+        }
+
+        if (decimal.TryParse(MaxPriceTextBox.Text, out var maxPrice))
+        {
+            query = query.Where(product => product.DiscountedPrice <= maxPrice);
+        }
+
+        var sortByPrice = (SortComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() == "Цена";
+        var isDescending = DescCheckBox.IsChecked ?? false;
+        query = sortByPrice
+            ? isDescending
+                ? query.OrderByDescending(product => product.DiscountedPrice).ThenBy(product => product.Name)
+                : query.OrderBy(product => product.DiscountedPrice).ThenBy(product => product.Name)
+            : isDescending
+                ? query.OrderByDescending(product => product.Name)
+                : query.OrderBy(product => product.Name);
+
+        var filteredProducts = query.ToList();
+        CountTextBlock.Text = $"Показано: {filteredProducts.Count} из {_allProducts.Count}";
+
+        ProductsPanel.Children.Clear();
+        if (filteredProducts.Count == 0)
+        {
+            ProductsPanel.Children.Add(new TextBlock
             {
-                Text = $"{p.Price:C}",
+                Text = "По выбранным параметрам товары не найдены.",
                 FontSize = 16,
-                FontWeight = FontWeights.Bold,
-                Foreground = new SolidColorBrush(Color.FromRgb(184, 134, 11))
-            };
-
-            if (p.Discount > 0)
-            {
-                var discounted = p.Price * (1 - p.Discount / 100m);
-                price.Text = $"{discounted:C}";
-                stack.Children.Add(new TextBlock
-                {
-                    Text = $"{p.Price:C} -{p.Discount}%",
-                    FontSize = 11,
-                    Foreground = new SolidColorBrush(Colors.Gray),
-                    TextDecorations = TextDecorations.Strikethrough
-                });
-            }
-            stack.Children.Add(price);
-
-            var btn = new Button
-            {
-                Content = "ЗАКАЗАТЬ",
-                Background = new SolidColorBrush(Color.FromRgb(184, 134, 11)),
-                Foreground = new SolidColorBrush(Colors.White),
-                FontWeight = FontWeights.Bold,
-                Height = 30,
-                Margin = new Thickness(0, 10, 0, 0)
-            };
-            btn.Click += (s, e) => AddToCart(p);
-
-            stack.Children.Add(btn);
-            card.Child = stack;
-            return card;
+                Margin = new Thickness(8)
+            });
+            return;
         }
 
-        private void AddToCart(Product p)
+        foreach (var product in filteredProducts)
         {
-            var item = AppState.Cart.FirstOrDefault(c => c.Product.ArticleNumber == p.ArticleNumber);
-            if (item != null) item.Quantity++;
-            else AppState.Cart.Add(new CartItem { Product = p, Quantity = 1 });
-
-            UpdateCart();
-            MessageBox.Show($"{p.Name} добавлен в корзину!");
+            ProductsPanel.Children.Add(CreateProductCard(product));
         }
+    }
 
-        private void UpdateCart()
+    private UIElement CreateProductCard(Product product)
+    {
+        var card = new Border
         {
-            var total = AppState.Cart.Sum(c => c.Quantity);
-            if (CartButton != null)
-            {
-                if (total > 0)
-                {
-                    CartButton.Visibility = Visibility.Visible;
-                    CartButton.Content = $"Корзина ({total})";
-                }
-                else
-                {
-                    CartButton.Visibility = Visibility.Collapsed;
-                }
-            }
-        }
+            Width = 270,
+            Margin = new Thickness(0, 0, 16, 16),
+            Padding = new Thickness(14),
+            CornerRadius = new CornerRadius(8),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(229, 224, 214)),
+            BorderThickness = new Thickness(1),
+            Background = Brushes.White
+        };
 
-        private async void LoadManufacturers()
+        var layout = new Grid();
+        for (var i = 0; i < 6; i++)
         {
-            try
-            {
-                var list = await _api.GetManufacturersAsync();
-                if (ManufacturerComboBox != null)
-                {
-                    ManufacturerComboBox.Items.Clear();
-                    ManufacturerComboBox.Items.Add("Все производители");
-                    foreach (var m in list) ManufacturerComboBox.Items.Add(m);
-                    ManufacturerComboBox.SelectedIndex = 0;
-                }
-            }
-            catch { }
+            layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         }
 
-        private void UpdateUI()
+        var cover = new Image
         {
-            if (AppState.IsAuthenticated)
-            {
-                LoginButton.Visibility = Visibility.Collapsed;
-                LogoutButton.Visibility = Visibility.Visible;
-                UserLabel.Text = AppState.UserName;
+            Height = 180,
+            Stretch = Stretch.Uniform,
+            Margin = new Thickness(0, 0, 0, 12),
+            Source = TryCreateImage(product.PhotoFileName)
+        };
+        Grid.SetRow(cover, 0);
+        layout.Children.Add(cover);
 
-                if (AppState.UserRole == "Администратор" || AppState.UserRole == "Менеджер")
-                    ManageOrdersButton.Visibility = Visibility.Visible;
-                else
-                    ManageOrdersButton.Visibility = Visibility.Collapsed;
-            }
-            else
-            {
-                LoginButton.Visibility = Visibility.Visible;
-                LogoutButton.Visibility = Visibility.Collapsed;
-                UserLabel.Text = "Гость";
-                ManageOrdersButton.Visibility = Visibility.Collapsed;
-            }
-        }
-
-        private void OnFilterChanged(object sender, RoutedEventArgs e) => LoadProducts();
-
-        private void LoginButton_Click(object sender, RoutedEventArgs e)
+        var title = new TextBlock
         {
-            var login = new LoginWindow();
-            if (login.ShowDialog() == true)
+            Text = product.Name,
+            FontSize = 16,
+            FontWeight = FontWeights.Bold,
+            TextWrapping = TextWrapping.Wrap
+        };
+        Grid.SetRow(title, 1);
+        layout.Children.Add(title);
+
+        var description = new TextBlock
+        {
+            Margin = new Thickness(0, 8, 0, 0),
+            Text = string.IsNullOrWhiteSpace(product.Description) ? "Описание не указано." : product.Description,
+            Foreground = new SolidColorBrush(Color.FromRgb(88, 88, 88)),
+            TextWrapping = TextWrapping.Wrap,
+            MaxHeight = 72
+        };
+        Grid.SetRow(description, 2);
+        layout.Children.Add(description);
+
+        var details = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+        details.Children.Add(new TextBlock
+        {
+            Text = $"Издательство: {product.ManufacturerName}",
+            FontWeight = FontWeights.SemiBold
+        });
+        details.Children.Add(new TextBlock
+        {
+            Margin = new Thickness(0, 4, 0, 0),
+            Text = product.StockQuantity > 0
+                ? $"В наличии: {product.StockQuantity}"
+                : "Нет в наличии, доступен предзаказ",
+            Foreground = product.StockQuantity > 0 ? Brushes.DimGray : Brushes.IndianRed
+        });
+        Grid.SetRow(details, 3);
+        layout.Children.Add(details);
+
+        var pricePanel = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
+        if (product.HasDiscount)
+        {
+            pricePanel.Children.Add(new TextBlock
             {
-                UpdateUI();
-                UpdateCart();
-                LoadProducts();
-            }
+                Text = $"{product.Price:C}  -{product.Discount}%",
+                Foreground = Brushes.Gray,
+                TextDecorations = TextDecorations.Strikethrough
+            });
         }
 
-        private void LogoutButton_Click(object sender, RoutedEventArgs e)
+        pricePanel.Children.Add(new TextBlock
         {
-            AppState.Clear();
-            UpdateUI();
-            UpdateCart();
-            LoadProducts();
-            MessageBox.Show("Вы вышли");
+            Text = $"{product.DiscountedPrice:C}",
+            FontSize = 18,
+            FontWeight = FontWeights.Bold,
+            Foreground = (Brush)FindResource("AccentBrush")
+        });
+        Grid.SetRow(pricePanel, 4);
+        layout.Children.Add(pricePanel);
+
+        var isPreorder = product.StockQuantity <= 0;
+        var orderButton = new Button
+        {
+            Margin = new Thickness(0, 14, 0, 0),
+            Content = isPreorder ? "Предзаказ" : "Заказать",
+            Style = (Style)FindResource("AccentButtonStyle"),
+            ToolTip = isPreorder
+                ? "Книга временно закончилась, но ее можно добавить в заказ."
+                : null
+        };
+        orderButton.Click += (_, _) => AddToCart(product);
+        Grid.SetRow(orderButton, 5);
+        layout.Children.Add(orderButton);
+
+        card.Child = layout;
+        return card;
+    }
+
+    private static ImageSource? TryCreateImage(string? photoFileName)
+    {
+        if (string.IsNullOrWhiteSpace(photoFileName))
+        {
+            return null;
         }
 
-        private void CartButton_Click(object sender, RoutedEventArgs e)
+        try
         {
-            if (AppState.Cart.Count == 0)
-            {
-                MessageBox.Show("Корзина пуста");
-                return;
-            }
-            var orderWindow = new OrderWindow();
-            if (orderWindow.ShowDialog() == true)
-            {
-                UpdateCart();
-                LoadProducts();
-            }
+            return new BitmapImage(new Uri($"pack://application:,,,/Resources/Products/{photoFileName}", UriKind.Absolute));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void AddToCart(Product product)
+    {
+        var currentQuantity = AppState.Cart
+            .Where(item => item.Product.ProductId == product.ProductId)
+            .Sum(item => item.Quantity);
+
+        if (product.StockQuantity > 0 && currentQuantity >= product.StockQuantity)
+        {
+            MessageBox.Show(
+                "Для этого товара больше нет доступных экземпляров.",
+                "Недостаточно товара",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
         }
 
-        private void ManageOrdersButton_Click(object sender, RoutedEventArgs e)
+        var existingItem = AppState.Cart.FirstOrDefault(item => item.Product.ProductId == product.ProductId);
+        if (existingItem is null)
         {
-            var orders = new OrderManagementWindow();
-            orders.ShowDialog();
+            AppState.Cart.Add(new CartItem { Product = product, Quantity = 1 });
         }
+        else
+        {
+            existingItem.Quantity += 1;
+        }
+
+        UpdateCartButton();
+        MessageBox.Show(
+            $"Товар \"{product.Name}\" добавлен в заказ.",
+            "Товар добавлен",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+    }
+
+    private void OnFilterChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_uiReady)
+        {
+            return;
+        }
+
+        ApplyFilters();
+    }
+
+    private void LoginButton_Click(object sender, RoutedEventArgs e)
+    {
+        var loginWindow = new LoginWindow { Owner = this };
+        if (loginWindow.ShowDialog() == true)
+        {
+            UpdateUserState();
+        }
+    }
+
+    private void LogoutButton_Click(object sender, RoutedEventArgs e)
+    {
+        AppState.SignOut();
+        UpdateUserState();
+        UpdateCartButton();
+        MessageBox.Show("Вы вышли из учетной записи.", "Готово", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void CartButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (AppState.Cart.Count == 0)
+        {
+            MessageBox.Show("Корзина пока пуста.", "Нет товаров", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var orderWindow = new OrderWindow { Owner = this };
+        if (orderWindow.ShowDialog() == true)
+        {
+            UpdateCartButton();
+        }
+    }
+
+    private void ManageOrdersButton_Click(object sender, RoutedEventArgs e)
+    {
+        new OrderManagementWindow { Owner = this }.ShowDialog();
     }
 }

@@ -1,61 +1,45 @@
-﻿using DesktopApp.Helpers;
-using System.Net.Http;
-using System.Net.Http.Json;
+using DesktopApp.Helpers;
+using DesktopApp.Services;
 using System.Windows;
 
-namespace DesktopApp
+namespace DesktopApp;
+
+public partial class LoginWindow : Window
 {
-    public partial class LoginWindow : Window
+    private readonly ApiService _apiService = new();
+
+    public LoginWindow()
     {
-        private readonly HttpClient _http = new HttpClient();
+        InitializeComponent();
+    }
 
-        public LoginWindow()
+    private async void LoginButton_Click(object sender, RoutedEventArgs e)
+    {
+        var login = LoginTextBox.Text.Trim();
+        var password = PasswordBox.Password.Trim();
+
+        if (string.IsNullOrWhiteSpace(login) || string.IsNullOrWhiteSpace(password))
         {
-            InitializeComponent();
+            MessageBox.Show("Введите логин и пароль.", "Недостаточно данных", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
         }
 
-        private async void BtnLogin_Click(object sender, RoutedEventArgs e)
+        try
         {
-            try
-            {
-                var response = await _http.PostAsJsonAsync(
-                    "https://localhost:7046/api/users/login",
-                    new { login = LoginTextBox.Text, password = PasswordBox.Password }
-                );
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    MessageBox.Show("Неверный логин или пароль!", "Ошибка",
-                        MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
-
-                var user = await response.Content.ReadFromJsonAsync<LoginResponse>();
-                AppState.UserName = user.FullName;
-                AppState.UserRole = user.Role;
-                AppState.UserId = user.UserId;
-
-                DialogResult = true;
-                Close();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Ошибка: {ex.Message}", "Ошибка",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void BtnCancel_Click(object sender, RoutedEventArgs e)
-        {
-            DialogResult = false;
+            var authenticatedUser = await ApiService.LoginAsync(login, password);
+            AppState.SetCurrentUser(authenticatedUser);
+            DialogResult = true;
             Close();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Вход не выполнен.\n{ex.Message}", "Ошибка авторизации", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
-    public class LoginResponse
+    private void CancelButton_Click(object sender, RoutedEventArgs e)
     {
-        public string FullName { get; set; } = "";
-        public string Role { get; set; } = "";
-        public int UserId { get; set; }
+        DialogResult = false;
+        Close();
     }
 }

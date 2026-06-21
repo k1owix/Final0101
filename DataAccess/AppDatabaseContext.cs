@@ -1,48 +1,35 @@
-﻿using Microsoft.EntityFrameworkCore;
-using DataAccess.Entities;
 using DataAccess.Models;
+using Microsoft.EntityFrameworkCore;
 
-namespace DataAccess
+namespace DataAccess;
+
+public sealed class AppDatabaseContext(DbContextOptions<AppDatabaseContext> options) : DbContext(options)
 {
-    public class AppDatabaseContext : DbContext
+    public DbSet<User> Users => Set<User>();
+    public DbSet<Product> Products => Set<Product>();
+    public DbSet<Order> Orders => Set<Order>();
+    public DbSet<OrderItem> OrderItems => Set<OrderItem>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        public AppDatabaseContext(DbContextOptions<AppDatabaseContext> options) : base(options)
-        {
-        }
+        modelBuilder.Entity<User>()
+            .HasIndex(user => user.Login)
+            .IsUnique();
 
-        public DbSet<User> Users { get; set; }
-        public DbSet<Product> Products { get; set; }
-        public DbSet<Order> Orders { get; set; }
-        public DbSet<OrderProduct> OrderProducts { get; set; }
+        modelBuilder.Entity<Product>()
+            .HasIndex(product => product.ProductId)
+            .IsUnique();
 
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
+        modelBuilder.Entity<OrderItem>()
+            .HasOne(item => item.Order)
+            .WithMany(order => order.OrderItems)
+            .HasForeignKey(item => item.OrderId)
+            .OnDelete(DeleteBehavior.Cascade);
 
-            modelBuilder.Entity<Order>()
-                .HasOne(o => o.Customer)
-                .WithMany(u => u.Orders)
-                .HasForeignKey(o => o.CustomerId)
-                .OnDelete(DeleteBehavior.SetNull);
-
-            modelBuilder.Entity<OrderProduct>()
-                .HasOne(op => op.Order)
-                .WithMany(o => o.OrderProducts)
-                .HasForeignKey(op => op.OrderId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<OrderProduct>()
-                .HasOne(op => op.Product)
-                .WithMany(p => p.OrderProducts)
-                .HasForeignKey(op => op.ProductId);
-
-            modelBuilder.Entity<Order>()
-                .Property(o => o.Status)
-                .HasDefaultValue("Новый");
-
-            modelBuilder.Entity<Order>()
-                .Property(o => o.OrderDate)
-                .HasDefaultValueSql("GETDATE()");
-        }
+        modelBuilder.Entity<OrderItem>()
+            .HasOne(item => item.Product)
+            .WithMany(product => product.OrderItems)
+            .HasForeignKey(item => item.ProductId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }
